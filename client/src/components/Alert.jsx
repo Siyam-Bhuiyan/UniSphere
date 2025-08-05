@@ -1,23 +1,30 @@
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   FaAmbulance,
   FaBullhorn,
   FaCarCrash,
+  FaCheckCircle,
   FaCloudShowersHeavy,
   FaExclamationCircle,
   FaExclamationTriangle,
   FaFire,
   FaInfoCircle,
+  FaLocationArrow,
   FaMapMarkerAlt,
   FaPhone,
   FaSearch,
-  FaLocationArrow,
-  FaCheckCircle,
   FaShieldAlt,
 } from 'react-icons/fa';
-import { MapContainer, Marker, Popup, TileLayer, useMapEvents } from 'react-leaflet';
-import L from 'leaflet';
+import {
+  MapContainer,
+  Marker,
+  Popup,
+  TileLayer,
+  useMap,
+  useMapEvents,
+} from 'react-leaflet';
 import { createAlert } from '../api/Alert';
 
 // Custom marker icon - ensures the marker displays correctly
@@ -27,20 +34,20 @@ const customIcon = new L.Icon({
   iconAnchor: [12, 41],
   popupAnchor: [1, -34],
   shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
-  shadowSize: [41, 41]
+  shadowSize: [41, 41],
 });
 
 // Component to handle map clicks and events
 function MapEventHandler({ onLocationUpdate }) {
   const map = useMapEvents({
-    click: async (e) => {
+    click: async e => {
       const { lat, lng } = e.latlng;
       onLocationUpdate({ lat, lng });
-      
+
       // Fetch address for the clicked location
       try {
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
         );
         const data = await response.json();
         if (data.display_name) {
@@ -49,9 +56,20 @@ function MapEventHandler({ onLocationUpdate }) {
       } catch (error) {
         console.error('Error fetching address:', error);
       }
-    }
+    },
   });
-  
+
+  return null;
+}
+
+// Add this helper component to programmatically move the map center
+function FlyToLocation({ center, zoom }) {
+  const map = useMap();
+  useEffect(() => {
+    if (center) {
+      map.flyTo(center, zoom, { animate: true });
+    }
+  }, [center, zoom, map]);
   return null;
 }
 
@@ -63,12 +81,12 @@ const Alert = () => {
   const [isSOSActive, setIsSOSActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const timerRef = useRef(null);
-  
+
   // New state for location search
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [mapCenter, setMapCenter] = useState([23.838282, 90.357230]);
+  const [mapCenter, setMapCenter] = useState([23.838282, 90.35723]);
   const [zoom, setZoom] = useState(13);
   const mapRef = useRef(null);
 
@@ -180,7 +198,7 @@ const Alert = () => {
         position => {
           const newLocation = {
             lat: position.coords.latitude,
-            lng: position.coords.longitude
+            lng: position.coords.longitude,
           };
           setLocation(newLocation);
           setMapCenter([newLocation.lat, newLocation.lng]);
@@ -198,7 +216,7 @@ const Alert = () => {
   const fetchAddressForCoordinates = async (lat, lng) => {
     try {
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
       );
       const data = await response.json();
       if (data.display_name) {
@@ -212,11 +230,13 @@ const Alert = () => {
   // Search for locations by name
   const searchLocations = async () => {
     if (!searchQuery.trim()) return;
-    
+
     setIsSearching(true);
     try {
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5`
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+          searchQuery,
+        )}&limit=5`,
       );
       const data = await response.json();
       setSearchResults(data);
@@ -228,17 +248,17 @@ const Alert = () => {
   };
 
   // Handle search form submission
-  const handleSearchSubmit = (e) => {
+  const handleSearchSubmit = e => {
     e.preventDefault();
     searchLocations();
   };
 
   // Handle selecting a search result
-  const handleSelectSearchResult = (result) => {
+  const handleSelectSearchResult = result => {
     const newLocation = {
       lat: parseFloat(result.lat),
       lng: parseFloat(result.lon),
-      address: result.display_name
+      address: result.display_name,
     };
     setLocation(newLocation);
     setMapCenter([newLocation.lat, newLocation.lng]);
@@ -247,8 +267,29 @@ const Alert = () => {
   };
 
   // Handle location update from map click
-  const handleLocationUpdate = (newLocation) => {
+  const handleLocationUpdate = newLocation => {
     setLocation(newLocation);
+  };
+
+  // Handler for green arrow button
+  const handleGoToCurrentLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          const newLocation = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          };
+          setLocation(newLocation);
+          setMapCenter([newLocation.lat, newLocation.lng]);
+          setZoom(17);
+          fetchAddressForCoordinates(newLocation.lat, newLocation.lng);
+        },
+        error => {
+          console.error('Error getting location:', error);
+        },
+      );
+    }
   };
 
   const startSOS = () => {
@@ -347,7 +388,7 @@ const Alert = () => {
                       placeholder="Search for a location..."
                       className="w-full p-3 rounded-lg bg-gray-800 text-white border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onChange={e => setSearchQuery(e.target.value)}
                     />
                     {searchResults.length > 0 && (
                       <div className="absolute z-10 mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
@@ -375,25 +416,7 @@ const Alert = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (navigator.geolocation) {
-                        navigator.geolocation.getCurrentPosition(
-                          position => {
-                            const newLocation = {
-                              lat: position.coords.latitude,
-                              lng: position.coords.longitude
-                            };
-                            setLocation(newLocation);
-                            setMapCenter([newLocation.lat, newLocation.lng]);
-                            setZoom(17);
-                            fetchAddressForCoordinates(newLocation.lat, newLocation.lng);
-                          },
-                          error => {
-                            console.error('Error getting location:', error);
-                          }
-                        );
-                      }
-                    }}
+                    onClick={handleGoToCurrentLocation}
                     className="bg-green-600 hover:bg-green-500 text-white rounded-lg px-4 flex items-center justify-center"
                   >
                     <FaLocationArrow />
@@ -411,12 +434,14 @@ const Alert = () => {
                   className="dark-map"
                 >
                   <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                  <FlyToLocation center={mapCenter} zoom={zoom} />
                   <MapEventHandler onLocationUpdate={handleLocationUpdate} />
                   {location && (
-                    <Marker position={[location.lat, location.lng]} icon={customIcon}>
-                      <Popup>
-                        {location.address || 'Selected location'}
-                      </Popup>
+                    <Marker
+                      position={[location.lat, location.lng]}
+                      icon={customIcon}
+                    >
+                      <Popup>{location.address || 'Selected location'}</Popup>
                     </Marker>
                   )}
                 </MapContainer>
@@ -429,10 +454,15 @@ const Alert = () => {
                     <div className="flex items-start gap-2">
                       <FaCheckCircle className="text-green-500 mt-1 flex-shrink-0" />
                       <div>
-                        <h3 className="font-medium text-white mb-1">Selected Location</h3>
-                        <p className="text-gray-300 text-sm">{location.address}</p>
+                        <h3 className="font-medium text-white mb-1">
+                          Selected Location
+                        </h3>
+                        <p className="text-gray-300 text-sm">
+                          {location.address}
+                        </p>
                         <div className="mt-2 text-xs text-gray-400">
-                          Coordinates: {location.lat.toFixed(6)}, {location.lng.toFixed(6)}
+                          Coordinates: {location.lat.toFixed(6)},{' '}
+                          {location.lng.toFixed(6)}
                         </div>
                       </div>
                     </div>

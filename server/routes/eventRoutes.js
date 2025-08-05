@@ -1,6 +1,5 @@
 import express from 'express';
-import { body } from 'express-validator';
-import { createEvent, getEvent, getEvents, getTags, rsvpEvent, updateEvent, deleteEvent } from '../controllers/eventController.js';
+import { createEvent, deleteEvent, getEvent, getEvents, getTags, rsvpEvent, updateEvent } from '../controllers/eventController.js';
 
 const router = express.Router();
 

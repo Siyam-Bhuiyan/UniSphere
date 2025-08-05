@@ -42,7 +42,7 @@ const eventsData = [
     category: 2, // Cultural
     organizer: "Student Activities Board",
     image: "/api/placeholder/400/200",
-    attendees: 156,
+    attendees: 5,
     interested: 243
   },
   {

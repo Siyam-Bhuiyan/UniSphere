@@ -25,11 +25,28 @@ export const getAlerts = async () => {
 // Update alert status
 export const updateAlert = async (alertId, status) => {
   try {
-    const response = await axios.patch(`${API_URL}/alerts/${alertId}`, {
-      status,
-    });
+    console.log(`Attempting to update alert ${alertId} to status: ${status}`);
+
+    // Configure axios to include proper headers for CORS
+    const config = {
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      withCredentials: true,
+    };
+
+    const response = await axios.patch(
+      `${API_URL}/alerts/${alertId}`,
+      { status },
+      config
+    );
+
+    console.log("Alert updated successfully:", response.data);
     return response.data;
   } catch (error) {
+    console.error("Error updating alert:", error);
     throw new Error(error.response?.data?.message || "Failed to update alert");
   }
 };

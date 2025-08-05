@@ -1,15 +1,16 @@
 import { Server } from "socket.io";
 
-const initializeSocketServer = (server) => {
-  const io = new Server(server, {
+const initializeSocketServer = (httpServer) => {
+  const io = new Server(httpServer, {
     cors: {
-      origin: "http://localhost:5173", // Your client URL
+      origin: ["http://localhost:5175", "http://localhost:3000", "http://localhost:5173"],
       methods: ["GET", "POST"],
-    },
+      credentials: true
+    }
   });
 
   // Store the io instance in the app for use in controllers
-  server.app.set("io", io);
+  // httpServer.app.set("io", io);
 
   const rooms = new Map();
   // Track connected users interested in bus updates

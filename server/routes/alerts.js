@@ -1,8 +1,17 @@
 import express from "express";
-import Alert from "../models/Alert.js";
 import { authenticateToken } from "../middleware/auth.js";
+import Alert from "../models/Alert.js";
 
 const router = express.Router();
+
+// Handle OPTIONS requests specifically for /:id route
+router.options("/:id", (req, res) => {
+  res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(204).end();
+});
 
 // Get all alerts
 router.get("/", async (req, res) => {
@@ -80,10 +89,13 @@ router.get("/admin", authenticateToken, async (req, res) => {
 // Update alert status
 router.patch("/:id", async (req, res) => {
   try {
+    console.log(`Updating alert ${req.params.id} with data:`, req.body);
+    
     // Find the alert
-    const {id}=req.params;
+    const {id} = req.params;
     const alert = await Alert.findById(id);
     if (!alert) {
+      console.log(`Alert not found with ID: ${id}`);
       return res.status(404).json({ message: "Alert not found" });
     }
 
@@ -91,14 +103,19 @@ router.patch("/:id", async (req, res) => {
     if (req.body.status) {
       const validStatuses = ["active", "pending", "resolved", "dismissed"];
       if (!validStatuses.includes(req.body.status)) {
+        console.log(`Invalid status: ${req.body.status}`);
         return res.status(400).json({
           message:
             "Invalid status. Must be one of: " + validStatuses.join(", "),
         });
       }
+      
       alert.status = req.body.status;
       
-      alert.handledAt = new Date();
+      // Set handled timestamp if moving to resolved/dismissed
+      if (["resolved", "dismissed"].includes(req.body.status)) {
+        alert.handledAt = new Date();
+      }
     }
 
     // Update other fields if provided
@@ -108,6 +125,7 @@ router.patch("/:id", async (req, res) => {
 
     // Save the updated alert
     const updatedAlert = await alert.save();
+    console.log("Alert updated successfully:", updatedAlert);
 
     res.json({
       message: "Alert updated successfully",

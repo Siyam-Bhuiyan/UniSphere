@@ -1,27 +1,64 @@
-import express from "express";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
-import cloudinary from "cloudinary";
-import axios from "axios";
-import { createWorker } from "tesseract.js";
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import axios from "axios";
+import express from "express";
+import fs from "fs";
+import multer from "multer";
+import { OpenAI } from "openai";
+import path from "path";
+import pdfParse from 'pdf-parse';
+import { createWorker } from "tesseract.js";
+import { ChromaClient } from 'chromadb';
 
-// Configure PDF.js for Node environment
-const DUMMY_CMAP_URL = "dummy";
-const DUMMY_CMAP_PACKED = true;
+// Force local storage regardless of environment variables
+const useLocalStorage = true;
+console.log("Using local storage for file uploads (Cloudinary disabled)");
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+// Initialize ChromaDB client
+const chromaClient = new ChromaClient();
+let documentCollection;
+
+// Initialize the ChromaDB collection
+async function initChromaDB() {
+  try {
+    // Create or get the collection for document embeddings
+    const collections = await chromaClient.listCollections();
+    const collectionExists = collections.some(c => c.name === 'document_embeddings');
+    
+    if (collectionExists) {
+      documentCollection = await chromaClient.getCollection({
+        name: 'document_embeddings'
+      });
+      console.log("ChromaDB: Connected to existing collection");
+    } else {
+      documentCollection = await chromaClient.createCollection({
+        name: 'document_embeddings',
+        metadata: { description: 'Document embeddings for RAG system' }
+      });
+      console.log("ChromaDB: Created new collection");
+    }
+  } catch (error) {
+    console.error("Error initializing ChromaDB:", error);
+    console.warn("Vector database functionality will be limited");
+  }
+}
+
+// Initialize ChromaDB on startup
+initChromaDB().catch(console.error);
+
+// Initialize Gemini AI
+const GEMINI_AI_KEY = process.env.GEMINI_AI_KEY;
+let model = null;
+if (GEMINI_AI_KEY) {
+  const genAI = new GoogleGenerativeAI(GEMINI_AI_KEY);
+  model = genAI.getGenerativeModel({ model: "gemini-pro" });
+  console.log("Gemini AI initialized");
+} else {
+  console.warn("Gemini AI key not found. Quiz generation will use fallback.");
+}
 
 const router = express.Router();
 
-// Configure local storage as fallback
+// Configure local storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const uploadsDir = path.join(process.cwd(), "uploads");
@@ -51,10 +88,86 @@ const upload = multer({
   },
 }).single("file");
 
+// Helper function to get authenticated Cloudinary URL
+function getAuthenticatedCloudinaryUrl(publicId) {
+  if (!process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+    return null;
+  }
+  
+  // Generate authenticated URL for private resources
+  return cloudinary.url(publicId, {
+    sign_url: true,
+    auth_token: {
+      key: process.env.CLOUDINARY_API_KEY,
+      duration: 3600, // 1 hour
+    },
+    resource_type: "auto",
+  });
+}
+
+// Helper function to download file with proper authentication
+async function downloadFileWithAuth(fileUrl, headers = {}) {
+  try {
+    console.log("Attempting to process file:", fileUrl);
+
+    // Check if this is a local URL from our server (starts with our host)
+    if (fileUrl.includes('/uploads/')) {
+      // Extract the filename from the URL
+      const parts = fileUrl.split('/uploads/');
+      if (parts.length < 2) {
+        throw new Error("Invalid local file URL format");
+      }
+      
+      const fileName = parts[1].split('?')[0]; // Remove any query parameters
+      const filePath = path.join(process.cwd(), "uploads", fileName);
+      
+      console.log("Accessing local file at:", filePath);
+      
+      // Check if file exists
+      if (!fs.existsSync(filePath)) {
+        console.error("Local file not found:", filePath);
+        const err = new Error("File not found");
+        err.response = { status: 404 };
+        throw err;
+      }
+      
+      // Read the file and return it in the same format as axios would
+      const data = fs.readFileSync(filePath);
+      console.log("Local file read successfully, size:", data.length);
+      
+      return { data };
+    } else {
+      // Handle external URLs
+      console.log("Downloading external file:", fileUrl);
+      const defaultHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        ...headers
+      };
+      
+      const response = await axios.get(fileUrl, {
+        responseType: "arraybuffer",
+        timeout: 30000,
+        headers: defaultHeaders,
+        maxRedirects: 5,
+      });
+      
+      console.log("External file downloaded successfully, size:", response.data.byteLength);
+      return response;
+    }
+  } catch (error) {
+    console.error("Download/access error:", error.message);
+    throw error;
+  }
+}
+
 // Handle file upload
 router.post("/upload", (req, res) => {
   upload(req, res, async function (err) {
     if (err) {
+      console.error("Multer error during upload:", err);
       return res.status(400).json({
         success: false,
         msg: err.message,
@@ -62,6 +175,7 @@ router.post("/upload", (req, res) => {
     }
 
     if (!req.file) {
+      console.error("No file received by /upload endpoint.");
       return res.status(400).json({
         success: false,
         msg: "No file uploaded",
@@ -69,40 +183,42 @@ router.post("/upload", (req, res) => {
     }
 
     try {
-      // Upload to Cloudinary if credentials exist
-      if (process.env.CLOUDINARY_API_KEY) {
-        const result = await cloudinary.uploader.upload(req.file.path, {
-          folder: "virtual_quiz",
-        });
-
-        // Delete local file after Cloudinary upload
-        fs.unlinkSync(req.file.path);
-
-        return res.json({
-          success: true,
-          file: {
-            url: result.secure_url,
-            publicId: result.public_id,
-          },
+      // Always use local storage
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+        console.log("Created uploads directory at:", uploadsDir);
+      }
+      
+      const fileName = req.file.filename;
+      const filePath = path.join(uploadsDir, fileName);
+      
+      // Verify file exists
+      if (!fs.existsSync(filePath)) {
+        console.error("Warning: File was not correctly saved by multer:", filePath);
+        return res.status(500).json({
+          success: false,
+          msg: "Error saving uploaded file",
         });
       }
-
-      // Use local file if no Cloudinary credentials
-      const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${
-        req.file.filename
-      }`;
+      
+      console.log("File successfully saved to:", filePath);
+      const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${fileName}`;
+      console.log("File accessible at URL:", fileUrl);
+      
       return res.json({
         success: true,
         file: {
           url: fileUrl,
-          publicId: req.file.filename,
+          publicId: fileName,
         },
       });
     } catch (error) {
-      console.error("Upload error:", error);
+      console.error("Error in file upload processing:", error);
       return res.status(500).json({
         success: false,
-        msg: "Error uploading file",
+        msg: "Server error during file upload processing",
+        error: error.message,
       });
     }
   });
@@ -137,52 +253,54 @@ router.post("/extract-text", async (req, res) => {
     if (fileType === "pdf") {
       try {
         console.log("Downloading PDF file...");
-        // Download the PDF file
-        const response = await axios.get(fileUrl, {
-          responseType: "arraybuffer",
-          timeout: 30000, // 30 seconds timeout
-        });
+        
+        // Use the download function with authentication
+        const response = await downloadFileWithAuth(fileUrl);
         console.log("PDF downloaded successfully");
 
         const buffer = Buffer.from(response.data);
         console.log("Buffer created, size:", buffer.length);
 
-        // Convert Buffer to Uint8Array for pdf.js
-        const uint8Array = new Uint8Array(buffer);
-        console.log("Converting to Uint8Array, size:", uint8Array.length);
-
-        // Load and parse PDF with Node.js configuration
-        console.log("Loading PDF document...");
-        const loadingTask = pdfjsLib.getDocument({
-          data: uint8Array,
-          cMapUrl: DUMMY_CMAP_URL,
-          cMapPacked: DUMMY_CMAP_PACKED,
-        });
-
-        const pdf = await loadingTask.promise;
-        console.log("PDF loaded successfully, pages:", pdf.numPages);
-
-        let text = "";
-
-        // Extract text from each page
-        for (let i = 1; i <= pdf.numPages; i++) {
-          console.log(`Processing page ${i}/${pdf.numPages}`);
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          const pageText = content.items.map((item) => item.str).join(" ");
-          text += pageText + " ";
-        }
-
-        extractedText = text.trim();
+        // Use pdf-parse to extract text
+        console.log("Parsing PDF document...");
+        const data = await pdfParse(buffer);
+        
+        extractedText = data.text.trim();
         console.log("Text extraction completed, length:", extractedText.length);
+        
       } catch (pdfError) {
         console.error("PDF extraction error:", pdfError);
-        console.error("Error stack:", pdfError.stack);
+        
+        // Enhanced error handling
+        if (pdfError.response) {
+          const status = pdfError.response.status;
+          if (status === 401) {
+            return res.status(401).json({
+              success: false,
+              msg: "Unauthorized access to PDF file. The file may be private or require authentication. Please ensure the file is publicly accessible or upload it directly.",
+              error: pdfError.message,
+              suggestion: "Try uploading the file directly instead of using a URL, or make sure the file is publicly accessible."
+            });
+          } else if (status === 403) {
+            return res.status(403).json({
+              success: false,
+              msg: "Access forbidden to PDF file. Please check file permissions.",
+              error: pdfError.message,
+            });
+          } else if (status === 404) {
+            return res.status(404).json({
+              success: false,
+              msg: "PDF file not found at the provided URL.",
+              error: pdfError.message,
+            });
+          }
+        }
+        
         return res.status(500).json({
           success: false,
-          msg: "Failed to extract text from PDF",
+          msg: "Failed to extract text from PDF. This could be due to file access restrictions, corruption, or an unsupported PDF format.",
           error: pdfError.message,
-          stack: pdfError.stack,
+          suggestion: "Try uploading the file directly or ensure it's a standard, non-encrypted PDF."
         });
       }
     }
@@ -195,12 +313,9 @@ router.post("/extract-text", async (req, res) => {
         await worker.initialize("eng");
         console.log("Tesseract worker initialized");
 
-        // Download the image
+        // Download the image using the new function
         console.log("Downloading image...");
-        const response = await axios.get(fileUrl, {
-          responseType: "arraybuffer",
-          timeout: 30000,
-        });
+        const response = await downloadFileWithAuth(fileUrl);
         console.log("Image downloaded successfully");
 
         const buffer = Buffer.from(response.data);
@@ -214,20 +329,29 @@ router.post("/extract-text", async (req, res) => {
 
         await worker.terminate();
         console.log("Tesseract worker terminated");
+        
       } catch (ocrError) {
         console.error("OCR error:", ocrError);
-        console.error("Error stack:", ocrError.stack);
+        
+        if (ocrError.response?.status === 401) {
+          return res.status(401).json({
+            success: false,
+            msg: "Unauthorized access to image file. Please ensure the file is publicly accessible or upload it directly.",
+            error: ocrError.message,
+          });
+        }
+        
         return res.status(500).json({
           success: false,
-          msg: "Failed to extract text from image",
+          msg: "Failed to extract text from image. This could be due to file access restrictions or poor image quality.",
           error: ocrError.message,
-          stack: ocrError.stack,
+          suggestion: "Try uploading the file directly or ensure the image has clear, readable text."
         });
       }
     } else {
       return res.status(400).json({
         success: false,
-        msg: "Unsupported file type",
+        msg: "Unsupported file type. Only PDF and image files are supported.",
       });
     }
 
@@ -240,30 +364,121 @@ router.post("/extract-text", async (req, res) => {
         warning: "minimal_text",
       });
     }
+    
+    // Store the extracted text in ChromaDB for future retrieval
+    let documentId;
+    try {
+      if (documentCollection) {
+        // Generate a unique ID for this document
+        documentId = `doc_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+        
+        // Split text into chunks (~1000 characters each)
+        const chunks = chunkText(extractedText, 1000);
+        
+        // Store chunks in ChromaDB
+        const chunkIds = chunks.map((_, idx) => `${documentId}_chunk_${idx}`);
+        const chunkMetadata = chunks.map((chunk, idx) => ({
+          documentId,
+          chunkIndex: idx,
+          totalChunks: chunks.length,
+          extractedFrom: fileUrl
+        }));
+        
+        await documentCollection.add({
+          ids: chunkIds,
+          documents: chunks,
+          metadatas: chunkMetadata,
+        });
+        
+        console.log(`Stored ${chunks.length} chunks in ChromaDB with document ID: ${documentId}`);
+      } else {
+        console.warn("ChromaDB not initialized, skipping vector storage");
+      }
+    } catch (chromaError) {
+      console.error("Error storing text in ChromaDB:", chromaError);
+      // Continue anyway, we'll return the text directly as fallback
+    }
 
     console.log("Successfully extracted text, sending response");
     res.json({
       success: true,
-      text: extractedText,
+      text: extractedText.substring(0, 1000) + "...", // Send only a preview
+      documentId: documentId || null, // Return the document ID for later retrieval
+      fullTextLength: extractedText.length,
+      storedInVectorDB: !!documentId
     });
+    
   } catch (err) {
     console.error("Error extracting text:", err);
-    console.error("Error stack:", err.stack);
     res.status(500).json({
       success: false,
       msg: "Server error during text extraction",
       error: err.message,
-      stack: err.stack,
+      suggestion: "Please try again or contact support if the issue persists."
     });
   }
 });
 
+// Helper function to chunk text for vector storage
+function chunkText(text, chunkSize = 1000, overlap = 200) {
+  if (!text) return [];
+  
+  const chunks = [];
+  let position = 0;
+  
+  while (position < text.length) {
+    // Calculate end position with potential sentence boundary
+    let end = Math.min(position + chunkSize, text.length);
+    
+    // Try to find a sentence boundary
+    if (end < text.length) {
+      const nextPeriod = text.indexOf('.', end - 50);
+      if (nextPeriod > 0 && nextPeriod < end + 50) {
+        end = nextPeriod + 1;  // Include the period
+      }
+    }
+    
+    // Add the chunk
+    chunks.push(text.substring(position, end));
+    
+    // Move position with overlap
+    position = end - overlap;
+    if (position < 0) position = 0;
+    
+    // Break if we've processed the entire text
+    if (position >= text.length) break;
+  }
+  
+  return chunks;
+}
+
+// --- OpenAI Setup for RAG ---
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+let openai = null;
+if (OPENAI_API_KEY) {
+  openai = new OpenAI({
+    apiKey: OPENAI_API_KEY,
+  });
+  console.log("OpenAI API initialized");
+} else {
+  console.warn("OpenAI API key not found. RAG will not be available.");
+}
+
+// Helper: Truncate context if too large for model (GPT-4o mini supports ~400k chars)
+function truncateContext(context, maxLength = 350000) {
+  if (!context) return "";
+  if (context.length <= maxLength) return context;
+  console.warn("Context too large, truncating for OpenAI context window.");
+  return context.slice(0, maxLength);
+}
+
 // @route   POST api/virtual-quiz/chat
-// @desc    Chat with AI using extracted text as context
+// @desc    Chat with AI using extracted text as context (RAG with OpenAI)
 // @access  Private
 router.post("/chat", async (req, res) => {
   try {
-    const { message, context } = req.body;
+    const { message, documentId } = req.body;
+    console.log("Received chat request:", { message, documentId });
 
     if (!message) {
       return res.status(400).json({
@@ -272,96 +487,105 @@ router.post("/chat", async (req, res) => {
       });
     }
 
-    // Check if Gemini API is available
-    if (!GEMINI_AI_KEY || !model) {
-      console.warn(
-        "Gemini API key not found or initialization failed. Using fallback response."
-      );
-
-      // Generate a simple fallback response
-      const keywords = message.toLowerCase().split(/\s+/);
-      const sentences = context
-        .split(/[.!?]+/)
-        .filter((s) => s.trim().length > 0);
-
-      // Find sentences containing keywords from the user's message
-      const relevantSentences = sentences.filter((sentence) =>
-        keywords.some(
-          (keyword) =>
-            keyword.length > 3 && sentence.toLowerCase().includes(keyword)
-        )
-      );
-
-      let fallbackResponse;
-      if (relevantSentences.length > 0) {
-        fallbackResponse =
-          "Here's what I found in your document:\n\n" +
-          relevantSentences.slice(0, 3).join(". ") +
-          ".";
-      } else {
-        fallbackResponse =
-          "I couldn't find specific information about that in your document. Could you try asking a different question?";
+    let context = "";
+    
+    // Retrieve relevant chunks from ChromaDB if documentId is provided
+    if (documentId && documentCollection) {
+      try {
+        // Query ChromaDB for relevant chunks using the question
+        const results = await documentCollection.query({
+          queryTexts: [message],
+          where: { documentId },
+          nResults: 5  // Get top 5 most relevant chunks
+        });
+        
+        if (results && results.documents && results.documents.length > 0) {
+          // Combine the chunks into the context
+          context = results.documents[0].join("\n\n");
+          console.log(`Retrieved ${results.documents[0].length} relevant chunks from ChromaDB`);
+        } else {
+          console.warn("No relevant chunks found in ChromaDB");
+        }
+      } catch (chromaError) {
+        console.error("Error querying ChromaDB:", chromaError);
+        // Continue anyway, we'll use fallback search
       }
-
-      return res.json({
-        success: true,
-        message: fallbackResponse,
-        fallback: true,
-      });
+    } else if (req.body.context) {
+      // Fallback: Use context from request if provided (for backward compatibility)
+      context = req.body.context;
+      console.log("Using context from request body");
     }
 
-    // Use Gemini API for chat
-    try {
-      const prompt = `You are a helpful assistant that answers questions based on the following document content. 
-      Please provide a concise and accurate response based ONLY on the information in the document.
-      
-      DOCUMENT CONTENT:
-      ${context}
-      
-      USER QUESTION:
-      ${message}`;
+    // --- RAG with OpenAI Large Context ---
+    if (openai && context) {
+      try {
+        const contextToSend = truncateContext(context);
+        console.log("RAG: Using context length:", contextToSend.length);
 
-      const result = await model.generateContent(prompt);
-      const botResponse = result.response.text();
+        const systemPrompt = "You are a helpful assistant that answers questions based on the provided documentation/context. If the answer isn't in the context, say so politely.";
+        const userPrompt = `
+Documentation:
+${contextToSend}
 
-      res.json({
-        success: true,
-        message: botResponse,
-      });
-    } catch (aiError) {
-      console.error("Gemini API error:", aiError);
+Question: ${message}
 
-      // Generate a simple fallback response
-      const keywords = message.toLowerCase().split(/\s+/);
-      const sentences = context
-        .split(/[.!?]+/)
-        .filter((s) => s.trim().length > 0);
+Please answer the question using information from the documentation. If the answer isn't in the documentation, say so politely.
+        `;
 
-      // Find sentences containing keywords from the user's message
-      const relevantSentences = sentences.filter((sentence) =>
-        keywords.some(
-          (keyword) =>
-            keyword.length > 3 && sentence.toLowerCase().includes(keyword)
-        )
-      );
+        const completionResp = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          max_tokens: 16000
+        });
 
-      let fallbackResponse;
-      if (relevantSentences.length > 0) {
-        fallbackResponse =
-          "I'm having trouble connecting to the AI service, but here's what I found in your document:\n\n" +
-          relevantSentences.slice(0, 3).join(". ") +
-          ".";
-      } else {
-        fallbackResponse =
-          "I'm having trouble connecting to the AI service and couldn't find specific information about that in your document. Please try again later.";
+        const botResponse = completionResp.choices[0].message.content;
+        console.log("RAG: OpenAI response:", botResponse);
+
+        return res.json({
+          success: true,
+          message: botResponse,
+          rag: true,
+        });
+      } catch (ragError) {
+        console.error("RAG error:", ragError);
+        // fallback below
       }
-
-      return res.json({
-        success: true,
-        message: fallbackResponse,
-        fallback: true,
-      });
     }
+
+    // --- Fallback: Keyword search in context ---
+    console.warn("OpenAI RAG not available, using fallback keyword search.");
+    const keywords = message.toLowerCase().split(/\s+/);
+    const sentences = context
+      ?.split(/[.!?]+/)
+      .filter((s) => s.trim().length > 0) || [];
+
+    // Find sentences containing keywords from the user's message
+    const relevantSentences = sentences.filter((sentence) =>
+      keywords.some(
+        (keyword) =>
+          keyword.length > 3 && sentence.toLowerCase().includes(keyword)
+      )
+    );
+
+    let fallbackResponse;
+    if (relevantSentences.length > 0) {
+      fallbackResponse =
+        "Here's what I found in your document:\n\n" +
+        relevantSentences.slice(0, 3).join(". ") +
+        ".";
+    } else {
+      fallbackResponse =
+        "I couldn't find specific information about that in your document. Could you try asking a different question?";
+    }
+
+    return res.json({
+      success: true,
+      message: fallbackResponse,
+      fallback: true,
+    });
   } catch (err) {
     console.error("Error in chat:", err);
     res.status(500).json({
@@ -386,36 +610,21 @@ router.post("/delete-file", async (req, res) => {
       });
     }
 
-    // If using local storage
-    if (useLocalStorage) {
-      const filePath = path.join(__dirname, "../../../uploads", publicId);
+    // Always use local storage
+    const filePath = path.join(process.cwd(), "uploads", publicId);
+    console.log("Attempting to delete file:", filePath);
 
-      // Check if file exists
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-
+    // Check if file exists
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log("File successfully deleted");
       return res.json({ success: true });
-    }
-
-    // If using Cloudinary
-    try {
-      const result = await cloudinary.uploader.destroy(publicId);
-
-      if (result.result !== "ok") {
-        return res.status(400).json({
-          success: false,
-          msg: "Failed to delete file from Cloudinary",
-        });
-      }
-
-      res.json({ success: true });
-    } catch (cloudinaryError) {
-      console.error("Cloudinary delete error:", cloudinaryError);
-      return res.status(500).json({
-        success: false,
-        msg: "Error deleting file from Cloudinary",
-        error: cloudinaryError.message,
+    } else {
+      console.warn("File not found for deletion:", filePath);
+      // Still return success as the file doesn't exist anyway
+      return res.json({ 
+        success: true,
+        warning: "File not found, but operation considered successful"
       });
     }
   } catch (err) {
@@ -447,13 +656,23 @@ router.post("/generate-quiz", async (req, res) => {
       console.warn(
         "Gemini API key not found or initialization failed. Using fallback response."
       );
-      return res.status(500).json({
-        success: false,
-        msg: "AI service is currently unavailable",
+      
+      // Generate fallback questions
+      const fallbackQuestions = generateFallbackQuestions(
+        topic,
+        parseInt(questionCount),
+        difficulty
+      );
+
+      return res.json({
+        success: true,
+        questions: fallbackQuestions,
+        fallback: true,
+        msg: "Using fallback question generation. For better results, configure Gemini AI."
       });
     }
 
-    // Use Gemini API to generate quiz questions
+    // Use Gemini AI to generate quiz questions
     try {
       const prompt = `You are a quiz generator. Create ${questionCount} ${difficulty} difficulty level questions about "${topic}".
       
@@ -491,10 +710,11 @@ router.post("/generate-quiz", async (req, res) => {
 
         // Attempt to fix common JSON formatting issues
         try {
-          // Replace single quotes with double quotes
+          // Replace single quotes with double quotes and clean up
           const fixedJson = responseText
             .replace(/'/g, '"')
             .replace(/\n/g, " ")
+            .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Remove control characters
             .trim();
 
           // Try to extract JSON array
@@ -522,8 +742,8 @@ router.post("/generate-quiz", async (req, res) => {
       }
 
       // Ensure each question has the required fields
-      questions = questions.map((q) => ({
-        question: q.question || `What is an important fact about ${topic}?`,
+      questions = questions.map((q, index) => ({
+        question: q.question || `What is an important fact about ${topic}? (Question ${index + 1})`,
         answer: q.answer || "Information not available",
       }));
 
@@ -548,6 +768,7 @@ router.post("/generate-quiz", async (req, res) => {
         success: true,
         questions: fallbackQuestions,
         fallback: true,
+        msg: "AI service temporarily unavailable. Using fallback questions."
       });
     }
   } catch (err) {
@@ -564,24 +785,23 @@ router.post("/generate-quiz", async (req, res) => {
 function generateFallbackQuestions(topic, count = 5, difficulty = "medium") {
   const questions = [];
 
-  // Basic question templates
-  const templates = [
+  // Basic question templates based on difficulty
+  const easyTemplates = [
     {
       q: `What is ${topic}?`,
       a: `${topic} is a concept or subject in its relevant field.`,
     },
     {
-      q: `Who is associated with ${topic}?`,
-      a: `Various experts and scholars have contributed to ${topic}.`,
+      q: `Name one important aspect of ${topic}.`,
+      a: `One important aspect of ${topic} is its significance in its field.`,
     },
     {
-      q: `When did ${topic} become significant?`,
-      a: `${topic} gained significance at an important point in history.`,
+      q: `Is ${topic} important? Why?`,
+      a: `Yes, ${topic} is important because it plays a significant role in its domain.`,
     },
-    {
-      q: `Why is ${topic} important?`,
-      a: `${topic} is important for various reasons in its field.`,
-    },
+  ];
+
+  const mediumTemplates = [
     {
       q: `How does ${topic} work?`,
       a: `${topic} functions through specific processes relevant to its domain.`,
@@ -591,9 +811,16 @@ function generateFallbackQuestions(topic, count = 5, difficulty = "medium") {
       a: `${topic} consists of several key components or elements.`,
     },
     {
-      q: `Where is ${topic} commonly found or used?`,
-      a: `${topic} is commonly found or used in specific contexts.`,
+      q: `Who is associated with ${topic}?`,
+      a: `Various experts and scholars have contributed to ${topic}.`,
     },
+    {
+      q: `When did ${topic} become significant?`,
+      a: `${topic} gained significance at an important point in history.`,
+    },
+  ];
+
+  const hardTemplates = [
     {
       q: `What is a common misconception about ${topic}?`,
       a: `There are several misconceptions about ${topic} that experts have clarified.`,
@@ -606,7 +833,24 @@ function generateFallbackQuestions(topic, count = 5, difficulty = "medium") {
       q: `What is the future of ${topic}?`,
       a: `Experts predict various developments in the future of ${topic}.`,
     },
+    {
+      q: `What are the challenges associated with ${topic}?`,
+      a: `${topic} faces several challenges that researchers are working to address.`,
+    },
   ];
+
+  // Select templates based on difficulty
+  let templates;
+  switch (difficulty.toLowerCase()) {
+    case 'easy':
+      templates = easyTemplates;
+      break;
+    case 'hard':
+      templates = hardTemplates;
+      break;
+    default:
+      templates = mediumTemplates;
+  }
 
   // Generate the requested number of questions
   for (let i = 0; i < count; i++) {
