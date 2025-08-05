@@ -6,6 +6,13 @@ export const getAllMenuItems = async (req, res) => {
   try {
     console.log('📋 Fetching all menu items...');
     const menuItems = await MenuItem.find();
+    
+    // Log the first item's image structure for debugging
+    if (menuItems.length > 0) {
+      console.log('Sample menu item image structure:', 
+        JSON.stringify(menuItems[0].image || 'No image'));
+    }
+    
     console.log(`✅ Found ${menuItems.length} menu items`);
     
     res.status(200).json({

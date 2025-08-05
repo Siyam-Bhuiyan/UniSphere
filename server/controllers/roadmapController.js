@@ -14,9 +14,13 @@ const generateRoadmap = async (req, res) => {
       You are an AI assistant that generates personalized learning roadmaps for university students.
       Follow these guidelines:
       1. Include 5 sections: Introduction, Key Topics, Resources, Projects, and Motivation Tips
-      2. Use clear headings and bullet points
-      3. Recommend specific resources with URLs when possible
-      4. Suggest realistic timelines based on weekly commitment
+      2. Use clear section titles (e.g., "Introduction", "Key Topics", etc.) in bold or with clear separation, but do NOT use markdown headers (no ##, #, etc.)
+      3. Use simple bullet points (dashes or asterisks) for lists, and keep formatting clean and web-friendly
+      4. Recommend specific resources with URLs when possible
+      5. Suggest realistic timelines based on weekly commitment
+      6. Add a blank line between sections for readability
+      7. Do not use any markdown formatting like **, __, //, or special symbols
+      8. Make the roadmap visually appealing and easy to read for web display
     `;
 
     // Create the user message with the actual prompt

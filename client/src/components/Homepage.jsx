@@ -86,7 +86,7 @@ export default function HomePage() {
       title: "Clubs & Events",
       icon: <FaUsers className="text-3xl text-indigo-600" />,
       description: "Join clubs, RSVP to events, and get event recommendations",
-      path: "/EventCalender",
+      path: "/MyClubEvents",
       color: "bg-indigo-50",
       hoverColor: "hover:bg-indigo-100",
       borderColor: "border-indigo-200",
@@ -260,13 +260,13 @@ export default function HomePage() {
 
               <div className="bg-white dark:bg-gray-700 p-4 rounded-lg shadow-sm">
                 <h3 className="font-semibold text-gray-900 dark:text-white mb-2">
-                  Skill Courses
+                  Read Articles
                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
                   Specialized courses to enhance your professional skills
                 </p>
                 <Link
-                  to="/learning-hub/skill-courses"
+                  to="/NewsPortal"
                   className="text-teal-600 dark:text-teal-400 text-sm hover:underline"
                 >
                   Browse Courses →

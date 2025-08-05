@@ -1,6 +1,5 @@
-import React, { useState, useRef } from "react";
-import axios from "axios";
-import html2pdf from "html2pdf.js";
+import axios from 'axios';
+import html2pdf from 'html2pdf.js';
 import {
   BookOpen,
   Brain,
@@ -10,52 +9,53 @@ import {
   MessageSquare,
   Target,
   PenTool as Tool,
-} from "lucide-react";
+} from 'lucide-react';
+import { useRef, useState } from 'react';
 
 const Roadmap = () => {
   const [step, setStep] = useState(1);
   const roadmapRef = useRef(null);
   const [formData, setFormData] = useState({
-    course: "",
+    course: '',
     goals: {
-      primaryGoal: "",
-      specificArea: "",
+      primaryGoal: '',
+      specificArea: '',
     },
     experience: {
-      description: "",
+      description: '',
       coursesCompleted: 0,
     },
     timeCommitment: {
-      hoursPerWeek: "2-5",
-      pace: "relaxed",
+      hoursPerWeek: '2-5',
+      pace: 'relaxed',
     },
     preferences: {
-      learningStyle: "interactive",
-      difficulty: "fundamentals",
+      learningStyle: 'interactive',
+      difficulty: 'fundamentals',
     },
-    tools: "",
-    feedback: "",
+    tools: '',
+    feedback: '',
   });
 
   const [generatedRoadmap, setGeneratedRoadmap] = useState(null);
-  const [successMessage, setSuccessMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async e => {
     e.preventDefault();
     setLoading(true);
     try {
       const response = await axios.post(
-        "http://localhost:5000/api/roadmap/generate",
+        'http://localhost:5000/api/roadmap/generate',
         {
-          userId: "anonymous",
+          userId: 'anonymous',
           ...formData,
-        }
+        },
       );
       setGeneratedRoadmap(response.data.roadmap.generatedContent);
-      setSuccessMessage("Your learning roadmap has been successfully created!");
+      setSuccessMessage('Your learning roadmap has been successfully created!');
     } catch (error) {
-      console.error("Submission error:", error);
+      console.error('Submission error:', error);
       alert(`Error: ${error.response?.data?.message || error.message}`);
     } finally {
       setLoading(false);
@@ -66,10 +66,10 @@ const Roadmap = () => {
     const element = roadmapRef.current;
     const opt = {
       margin: 1,
-      filename: "my-learning-roadmap.pdf",
-      image: { type: "jpeg", quality: 0.98 },
+      filename: 'my-learning-roadmap.pdf',
+      image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2 },
-      jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+      jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
     };
     html2pdf().set(opt).from(element).save();
   };
@@ -91,7 +91,7 @@ const Roadmap = () => {
     <div className="flex min-h-screen bg-gradient-to-b from-[#FFFDF7] to-[#FFF9E6]">
       <div
         className="flex-1 transition-all duration-300"
-        style={{ marginLeft: "0px" }}
+        style={{ marginLeft: '0px' }}
       >
         {/* Header Section */}
         <div className="bg-gradient-to-r from-[#FFF9E6] to-[#FFFDF7] border-b border-amber-100 py-8 px-6 mb-8">
@@ -118,7 +118,7 @@ const Roadmap = () => {
               <h2 className="text-2xl font-semibold text-amber-900 mb-4">
                 Generated Roadmap
               </h2>
-              <p>{generatedRoadmap}</p>
+              <div style={{ whiteSpace: 'pre-line' }}>{generatedRoadmap}</div>
               <div className="mt-6">
                 <button
                   onClick={handleDownloadPDF}
@@ -134,16 +134,16 @@ const Roadmap = () => {
                 {/* Progress Steps */}
                 <div className="mb-8">
                   <div className="flex items-center justify-between mb-4">
-                    {[1, 2, 3, 4, 5, 6, 7].map((number) => (
+                    {[1, 2, 3, 4, 5, 6, 7].map(number => (
                       <div
                         key={number}
                         className={`flex flex-col items-center ${
-                          number <= step ? "text-amber-600" : "text-gray-400"
+                          number <= step ? 'text-amber-600' : 'text-gray-400'
                         }`}
                       >
                         <div
                           className={`w-12 h-12 rounded-full flex items-center justify-center mb-2 ${
-                            number <= step ? "bg-amber-100" : "bg-gray-100"
+                            number <= step ? 'bg-amber-100' : 'bg-gray-100'
                           }`}
                         >
                           <StepIcon step={number} />
@@ -171,7 +171,7 @@ const Roadmap = () => {
                       </h2>
                       <select
                         value={formData.course}
-                        onChange={(e) =>
+                        onChange={e =>
                           setFormData({ ...formData, course: e.target.value })
                         }
                         className="w-full p-3 border border-amber-200 rounded-lg mt-1 focus:ring-amber-500 focus:border-amber-500"
@@ -222,7 +222,7 @@ const Roadmap = () => {
                             </span>
                             <select
                               value={formData.goals.primaryGoal}
-                              onChange={(e) =>
+                              onChange={e =>
                                 setFormData({
                                   ...formData,
                                   goals: {
@@ -253,7 +253,7 @@ const Roadmap = () => {
                             <input
                               type="text"
                               value={formData.goals.specificArea}
-                              onChange={(e) =>
+                              onChange={e =>
                                 setFormData({
                                   ...formData,
                                   goals: {
@@ -287,7 +287,7 @@ const Roadmap = () => {
                             </span>
                             <select
                               value={formData.experience.description}
-                              onChange={(e) =>
+                              onChange={e =>
                                 setFormData({
                                   ...formData,
                                   experience: {
@@ -321,7 +321,7 @@ const Roadmap = () => {
                               type="number"
                               min="0"
                               value={formData.experience.coursesCompleted}
-                              onChange={(e) =>
+                              onChange={e =>
                                 setFormData({
                                   ...formData,
                                   experience: {
@@ -355,7 +355,7 @@ const Roadmap = () => {
                               </span>
                               <select
                                 value={formData.timeCommitment.hoursPerWeek}
-                                onChange={(e) =>
+                                onChange={e =>
                                   setFormData({
                                     ...formData,
                                     timeCommitment: {
@@ -381,7 +381,7 @@ const Roadmap = () => {
                               </span>
                               <select
                                 value={formData.timeCommitment.pace}
-                                onChange={(e) =>
+                                onChange={e =>
                                   setFormData({
                                     ...formData,
                                     timeCommitment: {
@@ -426,7 +426,7 @@ const Roadmap = () => {
                               </span>
                               <select
                                 value={formData.preferences.learningStyle}
-                                onChange={(e) =>
+                                onChange={e =>
                                   setFormData({
                                     ...formData,
                                     preferences: {
@@ -455,7 +455,7 @@ const Roadmap = () => {
                               </span>
                               <select
                                 value={formData.preferences.difficulty}
-                                onChange={(e) =>
+                                onChange={e =>
                                   setFormData({
                                     ...formData,
                                     preferences: {
@@ -500,7 +500,7 @@ const Roadmap = () => {
                             <input
                               type="text"
                               value={formData.tools}
-                              onChange={(e) =>
+                              onChange={e =>
                                 setFormData({
                                   ...formData,
                                   tools: e.target.value,
@@ -516,7 +516,7 @@ const Roadmap = () => {
                             </span>
                             <select
                               className="w-full p-3 border border-amber-200 rounded-lg mt-1"
-                              onChange={(e) =>
+                              onChange={e =>
                                 setFormData({
                                   ...formData,
                                   universityResources: e.target.value,
@@ -559,8 +559,8 @@ const Roadmap = () => {
                       disabled={loading}
                     >
                       {loading
-                        ? "Generating Roadmap..."
-                        : "Create My Learning Plan"}
+                        ? 'Generating Roadmap...'
+                        : 'Create My Learning Plan'}
                     </button>
                   )}
                 </div>

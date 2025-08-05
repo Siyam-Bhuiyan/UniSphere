@@ -155,6 +155,7 @@ function App() {
           <Route path="/upload-notes" element={<UploadNotes />} />
           <Route path="/Chateau" element={<Chateau />} />
            <Route path="/SendEmailPage" element={<SendEmailPage />} />
+           <Route path="/NewsPortal" element={<NewsPortal/>}/>
           </Route>
         </Routes>
       </Router>

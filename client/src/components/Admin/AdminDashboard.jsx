@@ -173,7 +173,7 @@ export default function AdminDashboard() {
               Active Students
             </p>
             <p className="text-2xl font-bold text-gray-800 dark:text-white">
-              4,287
+              33
             </p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border-l-4 border-green-500">
@@ -181,7 +181,7 @@ export default function AdminDashboard() {
               Faculty Members
             </p>
             <p className="text-2xl font-bold text-gray-800 dark:text-white">
-              156
+            4
             </p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border-l-4 border-yellow-500">
@@ -189,7 +189,7 @@ export default function AdminDashboard() {
               Active Courses
             </p>
             <p className="text-2xl font-bold text-gray-800 dark:text-white">
-              342
+              6
             </p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border-l-4 border-purple-500">
@@ -197,7 +197,7 @@ export default function AdminDashboard() {
               Pending Approvals
             </p>
             <p className="text-2xl font-bold text-gray-800 dark:text-white">
-              18
+              0
             </p>
           </div>
         </div>

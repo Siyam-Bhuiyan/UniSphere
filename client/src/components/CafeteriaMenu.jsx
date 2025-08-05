@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FiFilter, FiSearch } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,60 +14,97 @@ const categories = [
 ];
 
 const NutritionModal = ({ nutrition, onClose }) => {
+  // Add safety checks for when nutrition data is missing
+  const nutritionData = nutrition || {};
+
+  // Default values for nutrition properties
+  const calories = nutritionData.calories || 0;
+  const protein = nutritionData.protein || 0;
+  const carbs = nutritionData.carbs || 0;
+  const fat = nutritionData.fat || 0;
+
   return (
-    <motion.div
-      className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onClick={onClose}
-    >
-      <motion.div
-        className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full shadow-2xl"
-        initial={{ y: 50, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 50, opacity: 0 }}
-        onClick={e => e.stopPropagation()}
-      >
-        <h3 className="text-2xl font-bold text-yellow-600 dark:text-yellow-300 mb-4">
-          Nutritional Information
-        </h3>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-yellow-50 dark:bg-gray-700 p-4 rounded-lg text-center">
-            <div className="text-3xl font-bold text-yellow-600 dark:text-yellow-300">
-              {nutrition.calories}
-            </div>
-            <div className="text-gray-600 dark:text-gray-400">Calories</div>
-          </div>
-          <div className="bg-yellow-50 dark:bg-gray-700 p-4 rounded-lg text-center">
-            <div className="text-3xl font-bold text-yellow-600 dark:text-yellow-300">
-              {nutrition.protein}g
-            </div>
-            <div className="text-gray-600 dark:text-gray-400">Protein</div>
-          </div>
-          <div className="bg-yellow-50 dark:bg-gray-700 p-4 rounded-lg text-center">
-            <div className="text-3xl font-bold text-yellow-600 dark:text-yellow-300">
-              {nutrition.carbs}g
-            </div>
-            <div className="text-gray-600 dark:text-gray-400">Carbs</div>
-          </div>
-          <div className="bg-yellow-50 dark:bg-gray-700 p-4 rounded-lg text-center">
-            <div className="text-3xl font-bold text-yellow-600 dark:text-yellow-300">
-              {nutrition.fat}g
-            </div>
-            <div className="text-gray-600 dark:text-gray-400">Fat</div>
-          </div>
-        </div>
-        <div className="mt-6 text-center">
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-bold text-gray-800 dark:text-gray-200">
+            Nutrition Information
+          </h3>
           <button
-            className="bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-2 rounded-lg transition-colors duration-300"
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             onClick={onClose}
           >
-            Close
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-6 w-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+
+        {!nutrition ? (
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            Nutrition information is not available for this item.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-yellow-50 dark:bg-yellow-900 p-4 rounded-lg">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-700 dark:text-gray-300">
+                  Calories
+                </span>
+                <span className="font-bold text-gray-800 dark:text-gray-200">
+                  {calories}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg text-center">
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  Protein
+                </div>
+                <div className="font-bold text-gray-800 dark:text-gray-200">
+                  {protein}g
+                </div>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg text-center">
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  Carbs
+                </div>
+                <div className="font-bold text-gray-800 dark:text-gray-200">
+                  {carbs}g
+                </div>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg text-center">
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  Fat
+                </div>
+                <div className="font-bold text-gray-800 dark:text-gray-200">
+                  {fat}g
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <button
+          className="mt-6 w-full bg-yellow-600 hover:bg-yellow-500 text-white py-2 rounded-lg transition-colors duration-300"
+          onClick={onClose}
+        >
+          Close
+        </button>
+      </div>
+    </div>
   );
 };
 
@@ -439,7 +476,11 @@ const CafeteriaMenu = () => {
                   >
                     <div className="relative h-48 overflow-hidden">
                       <img
-                        src={meal.image}
+                        src={
+                          meal.image?.url ||
+                          meal.image ||
+                          'https://via.placeholder.com/300?text=No+Image'
+                        }
                         className="w-full h-full object-cover"
                         alt={meal.name}
                       />
@@ -609,7 +650,11 @@ const CafeteriaMenu = () => {
                             className="flex border-b border-gray-200 dark:border-gray-700 pb-4"
                           >
                             <img
-                              src={item.image}
+                              src={
+                                item.image?.url ||
+                                item.image ||
+                                'https://via.placeholder.com/100?text=No+Image'
+                              }
                               alt={item.name}
                               className="w-20 h-20 object-cover rounded-lg"
                             />
